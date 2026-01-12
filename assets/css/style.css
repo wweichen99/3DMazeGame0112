@@ -1,0 +1,197 @@
+:root {
+    /* 黑夜模式 (配色参考 UI page1.jpg) */
+    --bg-color: #0B132B;
+    --panel-bg: rgba(0, 20, 40, 0.7);
+    --accent-color: #FFD700;
+    --text-color: #FFFFFF;
+    --border-color: rgba(255, 255, 255, 0.3);
+}
+
+body.theme-day {
+    --bg-color: #F0F4F8;
+    --panel-bg: rgba(255, 255, 255, 0.85);
+    --accent-color: #1C2541;
+    --text-color: #0B132B;
+    --border-color: rgba(0, 0, 0, 0.15);
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: var(--bg-color);
+}
+
+#canvasContainer {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+}
+
+#ui-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1000;
+    display: flex;
+    justify-content: space-between;
+    padding: 20px;
+    box-sizing: border-box;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+.hud-panel, #hud-top {
+    pointer-events: auto;
+}
+
+#hud-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 20px;
+    transition: opacity 0.3s ease;
+}
+
+.webcam-container {
+    width: 160px; height: 160px;
+    border-radius: 50%;
+    border: 3px solid var(--accent-color);
+    box-shadow: 0 0 15px var(--accent-color);
+    overflow: hidden;
+    background: #000;
+    position: relative;
+}
+
+#webgazer-target {
+    position: relative;
+    overflow: hidden;
+    background: #000;
+    border: 2px solid var(--accent-color);
+    width: 240px; height: 180px;
+}
+
+.scanner-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    border-radius: 50%;
+    background: linear-gradient(180deg, transparent 0%, var(--accent-color) 50%, transparent 100%);
+    background-size: 100% 200%;
+    animation: scan 3s linear infinite;
+    pointer-events: none;
+    opacity: 0.2;
+}
+
+@keyframes scan {
+    0% { background-position: 0% -100%; }
+    100% { background-position: 0% 200%; }
+}
+
+#hud-right {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 20px;
+}
+
+#minimap-container {
+    width: 200px;
+    height: 200px;
+    background: var(--panel-bg);
+    backdrop-filter: blur(5px);
+    border: 2px solid var(--border-color);
+    border-radius: 15px;
+    position: relative;
+    overflow: hidden;
+}
+
+/* 核心修复：严禁修改此处的布局逻辑 */
+#minimap, #objects {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain;
+}
+
+.hud-label {
+    margin-top: 8px;
+    color: var(--accent-color);
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-shadow: 0 0 5px var(--accent-color);
+    font-weight: bold;
+    background: rgba(0,0,0,0.5);
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+
+#hud-top {
+    position: absolute;
+    top: 20px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(10px);
+    padding: 8px 20px;
+    border-radius: 30px;
+    border: 1px solid var(--border-color);
+    display: flex; gap: 15px;
+    z-index: 1000;
+}
+
+.hud-btn {
+    background: transparent;
+    border: none;
+    color: white;
+    width: 36px; height: 36px;
+    cursor: pointer;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+}
+
+.hud-btn:hover { background: rgba(255, 255, 255, 0.2); color: var(--accent-color); }
+
+/* Setup Screen */
+#setup-screen {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    background: var(--bg-color);
+    z-index: 2000;
+    display: flex; justify-content: center; align-items: center;
+}
+
+.setup-box {
+    text-align: center;
+    border: 2px solid var(--accent-color);
+    padding: 40px;
+    border-radius: 20px;
+    background: var(--panel-bg);
+    color: var(--text-color);
+}
+
+.theme-toggle-btn {
+    padding: 10px 15px;
+    border: 2px solid var(--accent-color);
+    background: transparent;
+    color: var(--accent-color);
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.theme-toggle-btn:hover { background: var(--accent-color); color: var(--bg-color); }
+
+.setup-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    padding: 20px; border-radius: 10px;
+    cursor: pointer; transition: 0.3s;
+}
+
+.setup-btn:hover { border-color: var(--accent-color); background: rgba(255,215,0,0.1); }
+.setup-btn .desc { display: block; font-size: 0.8em; opacity: 0.6; margin-top: 5px; }
