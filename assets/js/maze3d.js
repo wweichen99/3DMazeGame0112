@@ -12,6 +12,8 @@
     var _plActive = false;
     var _mouseSensitivity = 0.002;
     var _keys = { w: false, a: false, s: false, d: false };
+    // 关键变量：用于防止 Pointer Lock 重新激活时的镜头跳跃
+    var _skipFirstMouseMove = false;
 
     // === Fire & Smoke ===
     var fireSystem, smokeSystem;
@@ -150,7 +152,15 @@
         for (var i = 0; i < smokeParticles; i++) {
             smokeGeo.vertices.push(new THREE.Vector3((Math.random()-0.5)*3500, Math.random()*200, (Math.random()-0.5)*3500));
         }
-        var smokeMat = new THREE.PointsMaterial({ map: tex, color: 0x222222, size: 80, transparent: true, opacity: 0.3, depthWrite: false });
+        
+        var smokeMat = new THREE.PointsMaterial({ 
+            map: tex, 
+            color: (experimentMode === 'xray') ? 0x444444 : 0x222222, 
+            size: (experimentMode === 'xray') ? 40 : 80, 
+            transparent: true, 
+            opacity: 0.2, 
+            depthWrite: false 
+        });
         smokeSystem = new THREE.Points(smokeGeo, smokeMat);
         scene.add(smokeSystem);
         experimentStartTime = Date.now();
@@ -168,7 +178,10 @@
             v.x += Math.sin(Date.now()*0.0005)*0.2;
         });
         smokeSystem.geometry.verticesNeedUpdate = true;
-        if (scene.fog.density < 0.015) scene.fog.density += 0.000008;
+
+        var maxFog = (experimentMode === 'xray') ? 0.004 : 0.015;
+        var fogIncrement = (experimentMode === 'xray') ? 0.000002 : 0.000008;
+        if (scene.fog.density < maxFog) scene.fog.density += fogIncrement;
     }
 
     function moveCamera(dir) {
@@ -192,6 +205,12 @@
 
     function nextLevel() {
         running = false;
+        // 关键修复：弹窗前强制清空所有按键状态，防止 Alert 后角色自动旋转或行走
+        for (var k in _keys) _keys[k] = false;
+        if (input && input.keys) {
+            for (var ik in input.keys) input.keys[ik] = false;
+        }
+
         if (isWarmUp) {
             isWarmUp = false;
             camera.rotation.set(0, 0, 0); 
@@ -226,16 +245,28 @@
         var pW = map[0].length * 100, pH = map.length * 100;
         scene.add(new THREE.Mesh(new THREE.BoxGeometry(pW, 5, pH), new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/ground_diffuse.jpg") })).translateY(1));
         scene.add(new THREE.Mesh(new THREE.BoxGeometry(pW, 5, pH), new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/roof_diffuse.jpg") })).translateY(100));
+        
         var wallGeo = new THREE.BoxGeometry(100, 100, 100);
         var wallMat = new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/wall_diffuse.jpg") });
-        var xrayMat = new THREE.MeshBasicMaterial({ color: 0x0088ff, transparent: true, opacity: 0.1, depthWrite: false });
+        
+        var xrayFillMat = new THREE.MeshBasicMaterial({ color: 0x0066ff, transparent: true, opacity: 0.15, depthWrite: false });
+        var edgeGeo = new THREE.EdgesGeometry(wallGeo);
+        var edgeMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.5 });
+
         for (var y = 0; y < map.length; y++) {
             for (var x = 0; x < map[y].length; x++) {
                 var px = -pW / 2 + 100 * x, pz = -pH / 2 + 100 * y;
                 if (x == 0 && y == 0) { cameraHelper.origin.x = px; cameraHelper.origin.z = pz; }
                 if (map[y][x] > 1) {
-                    var m = (experimentMode === 'minimap') ? new THREE.Mesh(wallGeo, wallMat) : new THREE.Mesh(wallGeo, xrayMat);
-                    m.position.set(px, 50, pz); scene.add(m);
+                    if (experimentMode === 'minimap') {
+                        var m = new THREE.Mesh(wallGeo, wallMat);
+                        m.position.set(px, 50, pz); scene.add(m);
+                    } else {
+                        var fill = new THREE.Mesh(wallGeo, xrayFillMat);
+                        fill.position.set(px, 50, pz); scene.add(fill);
+                        var wireframe = new THREE.LineSegments(edgeGeo, edgeMat);
+                        wireframe.position.set(px, 50, pz); scene.add(wireframe);
+                    }
                 }
                 if (map[y][x] === "D") camera.position.set(px, 50, pz);
                 if (map[y][x] === "A") {
@@ -264,32 +295,37 @@
     function setupPointerLock() {
         var el = renderer.domElement;
         el.onclick = () => { if(!running) return; el.requestPointerLock(); };
-        document.addEventListener('pointerlockchange', () => { _plActive = (document.pointerLockElement === el); });
+        
+        document.addEventListener('pointerlockchange', () => { 
+            _plActive = (document.pointerLockElement === el); 
+            // 核心修复：重新获得锁定时，标记需要跳过下一帧 mousemove
+            if (_plActive) _skipFirstMouseMove = true;
+        });
+
         document.addEventListener('mousemove', (e) => { 
             if (_plActive && running) {
+                // 核心修复：如果标记为跳过，则不处理位移，并重置标记
+                if (_skipFirstMouseMove) {
+                    _skipFirstMouseMove = false;
+                    return;
+                }
                 camera.rotation.y -= e.movementX * _mouseSensitivity; 
             }
         });
     }
 
-    /**
-     * 已修改：增加对终点 'A' 的可视化渲染
-     */
     function drawMiniMapStatic() {
         var mm = $("minimap"), o = $("objects"); if (!mm || !o) return;
         mm.width = o.width = map[0].length * mapScale; mm.height = o.height = map.length * mapScale;
         var ctx = mm.getContext("2d");
         for (var y=0; y<map.length; y++) {
             for (var x=0; x<map[0].length; x++) {
-                // 判断逻辑：如果是终点 'A'，使用绿色；否则按原有逻辑（墙壁灰，地板白）
                 if (map[y][x] === 'A') {
-                    ctx.fillStyle = "#2ecc71"; // 绿色标记终点
+                    ctx.fillStyle = "#2ecc71"; 
                 } else {
                     ctx.fillStyle = isWallCellByValue(map[y][x]) ? "#333" : "#eee";
                 }
                 ctx.fillRect(x*mapScale, y*mapScale, mapScale, mapScale);
-
-                // 额外添加一个文本标记 "E"，让用户更明确
                 if (map[y][x] === 'A') {
                     ctx.fillStyle = "white";
                     ctx.font = `bold ${Math.floor(mapScale * 0.8)}px Arial`;
