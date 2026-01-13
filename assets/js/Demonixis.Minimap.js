@@ -36,6 +36,9 @@ Demonixis.Gui.MiniMap = function(width, height, parent) {
         domElement.appendChild(this.miniMap);
     };
 
+    /**
+     * 已修改：将终点颜色改为绿色，并添加文字标记
+     */
     this.draw = function(x, y, id) {
         if (id == 1) {
             this.ctx.fillStyle = "white";
@@ -46,14 +49,23 @@ Demonixis.Gui.MiniMap = function(width, height, parent) {
                 y: y
             };
         } else if (id == 'J') {
-            this.ctx.fillStype = "yellow";
+            this.ctx.fillStyle = "yellow"; // 修复原代码拼写错误 (fillStype -> fillStyle)
         } else if (id == 'A') {
-            this.ctx.fillStyle = "blue";
+            this.ctx.fillStyle = "#2ecc71"; // 已修改：蓝色改为绿色以匹配终点标记
         } else {
             this.ctx.fillStyle = "rgb(200, 200, 200)";
         }
 
         this.ctx.fillRect(x * 5, y * 5, 5, 5);
+        
+        // 如果是终点，绘制一个小型标记文字 "E"
+        if (id == 'A') {
+            this.ctx.fillStyle = "white";
+            this.ctx.font = "bold 4px Arial";
+            this.ctx.textAlign = "center";
+            this.ctx.textBaseline = "middle";
+            this.ctx.fillText("E", x * 5 + 2.5, y * 5 + 2.5);
+        }
     };
 
     this.update = function(newPlayerPosition) {

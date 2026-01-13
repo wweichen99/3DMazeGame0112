@@ -194,7 +194,6 @@
         running = false;
         if (isWarmUp) {
             isWarmUp = false;
-            // 修复：显式重置镜头方向，防止继承 Warmup 时的旋转状态
             camera.rotation.set(0, 0, 0); 
             alert("Warm-up over. Starting formal experiment (Map 1) with fire simulation.");
             loadLevel(1); 
@@ -267,22 +266,37 @@
         el.onclick = () => { if(!running) return; el.requestPointerLock(); };
         document.addEventListener('pointerlockchange', () => { _plActive = (document.pointerLockElement === el); });
         document.addEventListener('mousemove', (e) => { 
-            // 修复：仅当 PointerLock 激活且游戏正在运行（非 Alert 状态）时才应用旋转
             if (_plActive && running) {
                 camera.rotation.y -= e.movementX * _mouseSensitivity; 
             }
         });
     }
 
-    // ... 其余辅助函数保持不变 (drawMiniMapStatic, updateMiniMapOverlay, worldToTileFloat) ...
+    /**
+     * 已修改：增加对终点 'A' 的可视化渲染
+     */
     function drawMiniMapStatic() {
         var mm = $("minimap"), o = $("objects"); if (!mm || !o) return;
         mm.width = o.width = map[0].length * mapScale; mm.height = o.height = map.length * mapScale;
         var ctx = mm.getContext("2d");
         for (var y=0; y<map.length; y++) {
             for (var x=0; x<map[0].length; x++) {
-                ctx.fillStyle = isWallCellByValue(map[y][x]) ? "#333" : "#eee";
+                // 判断逻辑：如果是终点 'A'，使用绿色；否则按原有逻辑（墙壁灰，地板白）
+                if (map[y][x] === 'A') {
+                    ctx.fillStyle = "#2ecc71"; // 绿色标记终点
+                } else {
+                    ctx.fillStyle = isWallCellByValue(map[y][x]) ? "#333" : "#eee";
+                }
                 ctx.fillRect(x*mapScale, y*mapScale, mapScale, mapScale);
+
+                // 额外添加一个文本标记 "E"，让用户更明确
+                if (map[y][x] === 'A') {
+                    ctx.fillStyle = "white";
+                    ctx.font = `bold ${Math.floor(mapScale * 0.8)}px Arial`;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText("E", x * mapScale + mapScale / 2, y * mapScale + mapScale / 2);
+                }
             }
         }
     }

@@ -13,7 +13,6 @@
             display: none;
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            /* 修复：使用变量代替硬编码颜色 */
             background: var(--bg-color);
             z-index: 9999;
             font-family: 'Segoe UI', sans-serif;
@@ -22,7 +21,6 @@
         .calib-instructions {
             position: absolute; top: 15%; width: 100%;
             text-align: center; 
-            /* 修复：使用变量代替硬编码颜色 */
             color: var(--text-color);
         }
         #webgazerVideoFeed, #webgazerVideoCanvas, #webgazerFaceOverlay, #webgazerFaceFeedbackBox {
@@ -72,8 +70,7 @@
                 <div id="webgazer-target"></div>
                 <div class="scanner-overlay"></div>
             </div>
-            <div class="hud-label">EYE TRACKING FEED</div>
-        </div>
+            </div>
 
         <div id="hud-top">
             <button class="hud-btn" onclick="togglePanel('hud-left')" title="Toggle Gaze Feed">
@@ -92,8 +89,7 @@
                 <canvas id="minimap"></canvas>
                 <canvas id="objects"></canvas>
             </div>
-            <div class="hud-label">MINIMAP</div>
-        </div>
+            </div>
     </div>
 
     <div id="canvasContainer" style="position:relative"></div>
