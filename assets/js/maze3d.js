@@ -12,7 +12,6 @@
     var _plActive = false;
     var _mouseSensitivity = 0.002;
     var _keys = { w: false, a: false, s: false, d: false };
-    // 关键变量：用于防止 Pointer Lock 重新激活时的镜头跳跃
     var _skipFirstMouseMove = false;
 
     // === Fire & Smoke ===
@@ -51,6 +50,38 @@
         var tex = new THREE.Texture(canvas);
         tex.needsUpdate = true;
         return tex;
+    }
+
+    // === 创建文字精灵图的辅助函数 ===
+    function createTextSprite(message) {
+        var canvas = document.createElement('canvas');
+        canvas.width = 512; // 增加分辨率
+        canvas.height = 256;
+        var ctx = canvas.getContext('2d');
+        
+        // 文字样式
+        ctx.font = "Bold 100px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        
+        // 绘制黑色描边（增加对比度）
+        ctx.strokeStyle = "rgba(0,0,0,1.0)";
+        ctx.lineWidth = 8;
+        ctx.strokeText(message, 256, 128);
+        
+        // 绘制白色填充文字
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(message, 256, 128);
+        
+        var texture = new THREE.Texture(canvas);
+        texture.needsUpdate = true;
+        
+        // 注意：depthTest: false 在这里不设置，而是在添加到场景时根据模式设置
+        var spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+        var sprite = new THREE.Sprite(spriteMaterial);
+        // 设置精灵图在3D空间中的显示尺寸
+        sprite.scale.set(80, 40, 1); 
+        return sprite;
     }
 
     window.startGame = function(mode) {
@@ -205,7 +236,6 @@
 
     function nextLevel() {
         running = false;
-        // 关键修复：弹窗前强制清空所有按键状态，防止 Alert 后角色自动旋转或行走
         for (var k in _keys) _keys[k] = false;
         if (input && input.keys) {
             for (var ik in input.keys) input.keys[ik] = false;
@@ -243,6 +273,8 @@
         while(scene.children.length > 0){ scene.remove(scene.children[0]); }
         var loader = new THREE.TextureLoader();
         var pW = map[0].length * 100, pH = map.length * 100;
+        
+        // 注意：屋顶高度是100，所以任何超过100的物体在屋内都看不见。
         scene.add(new THREE.Mesh(new THREE.BoxGeometry(pW, 5, pH), new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/ground_diffuse.jpg") })).translateY(1));
         scene.add(new THREE.Mesh(new THREE.BoxGeometry(pW, 5, pH), new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/roof_diffuse.jpg") })).translateY(100));
         
@@ -273,6 +305,18 @@
                     exitPosition.set(px, 50, pz); hasExit = true;
                     var g = new THREE.Mesh(new THREE.BoxGeometry(20, 100, 20), new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.6 }));
                     g.position.set(px, 50, pz); scene.add(g);
+
+                    // === 修复：确保 X-ray 模式下的 EXIT 提示可见 ===
+                    if (experimentMode === 'xray') {
+                        var exitLabel = createTextSprite("EXIT");
+                        // 修正：原来 y=110 被屋顶挡住了。改为 y=70 (在走廊高度内)。
+                        exitLabel.position.set(px, 70, pz);
+                        // 关键修改：关闭深度测试 (depthTest: false)
+                        // 这让文字即使在无数层半透明墙壁后面，也永远“置顶”显示，非常清晰。
+                        exitLabel.material.depthTest = false;
+                        exitLabel.material.depthWrite = false;
+                        scene.add(exitLabel);
+                    }
                 }
             }
         }
@@ -298,13 +342,11 @@
         
         document.addEventListener('pointerlockchange', () => { 
             _plActive = (document.pointerLockElement === el); 
-            // 核心修复：重新获得锁定时，标记需要跳过下一帧 mousemove
             if (_plActive) _skipFirstMouseMove = true;
         });
 
         document.addEventListener('mousemove', (e) => { 
             if (_plActive && running) {
-                // 核心修复：如果标记为跳过，则不处理位移，并重置标记
                 if (_skipFirstMouseMove) {
                     _skipFirstMouseMove = false;
                     return;
