@@ -14,21 +14,25 @@
     var _keys = { w: false, a: false, s: false, d: false };
     var _skipFirstMouseMove = false;
 
-    // === Fire & Smoke ===
+    // === 火灾与烟雾系统 ===
     var fireSystem, smokeSystem;
-    var fireParticles = 1200;
-    var smokeParticles = 1500;
+    var fireParticles = 1500;
+    var smokeParticles = 2000;
+    var fireSourcePosition = new THREE.Vector3(); 
+    var fireRadius = 0;                           
+    var fireSpreadRate = 0.15;                    
+    var fireGraceRadius = 100;                    // 安全半径：扩大到此半径（约1格距离）外才开启死亡判定
     var experimentStartTime = 0;
     var exitPosition = new THREE.Vector3(); 
     var hasExit = false;
     var warmUpTimer = 0;
 
-    // === Data Logging ===
+    // === 数据记录 ===
     var viewportLogs = [], minimapLogs = { hovers: {} }, gazeLogs = []; 
     var lastLogTime = 0, LOG_INTERVAL = 250; 
     var gazeBuffer = [], GAZE_BUFFER_SIZE = 8;
 
-    // === Calibration ===
+    // === 校准逻辑 ===
     var calibPoints = [[10,10], [50,10], [90,10], [10,50], [50,50], [90,50], [10,90], [50,90], [90,90]];
     var currentPointIdx = 0, clicksPerPoint = 5, currentClicks = 0;
     var mapScale = 16; 
@@ -52,34 +56,19 @@
         return tex;
     }
 
-    // === 创建文字精灵图的辅助函数 ===
     function createTextSprite(message) {
         var canvas = document.createElement('canvas');
-        canvas.width = 512; // 增加分辨率
-        canvas.height = 256;
+        canvas.width = 512; canvas.height = 256;
         var ctx = canvas.getContext('2d');
-        
-        // 文字样式
         ctx.font = "Bold 100px Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        
-        // 绘制黑色描边（增加对比度）
-        ctx.strokeStyle = "rgba(0,0,0,1.0)";
-        ctx.lineWidth = 8;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.strokeStyle = "rgba(0,0,0,1.0)"; ctx.lineWidth = 8;
         ctx.strokeText(message, 256, 128);
-        
-        // 绘制白色填充文字
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(message, 256, 128);
-        
+        ctx.fillStyle = "#ffffff"; ctx.fillText(message, 256, 128);
         var texture = new THREE.Texture(canvas);
         texture.needsUpdate = true;
-        
-        // 注意：depthTest: false 在这里不设置，而是在添加到场景时根据模式设置
         var spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
         var sprite = new THREE.Sprite(spriteMaterial);
-        // 设置精灵图在3D空间中的显示尺寸
         sprite.scale.set(80, 40, 1); 
         return sprite;
     }
@@ -120,7 +109,7 @@
         initializeEngine();
         configureUIForMode(experimentMode);
         levelHelper = new Demonixis.GameHelper.LevelHelper();
-        loadLevel(5); 
+        loadLevel(5); // 加载练习关卡
     }
 
     function initWebGazer() {
@@ -135,7 +124,6 @@
                 }
             }).begin();
             webgazer.showVideoPreview(true).showPredictionPoints(true);
-            
             var moveUI = setInterval(function(){
                 var v = $('webgazerVideoFeed'), t = $('webgazer-target');
                 if (v && t && v.parentElement !== t) {
@@ -160,7 +148,6 @@
         input = new Demonixis.Input();
         cameraHelper = new Demonixis.GameHelper.CameraHelper(camera);
         cameraHelper.translation = 5; cameraHelper.rotation = 0.04;
-
         setupPointerLock();
         setupMinimapTracking();
         window.addEventListener("resize", function() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
@@ -170,63 +157,70 @@
 
     function initFireEffects() {
         if (isWarmUp) return; 
+        fireRadius = 0; 
         var tex = createParticleTexture();
         var fireGeo = new THREE.Geometry();
-        for (var i = 0; i < fireParticles; i++) {
-            fireGeo.vertices.push(new THREE.Vector3(exitPosition.x+(Math.random()-0.5)*100, Math.random()*50, exitPosition.z+(Math.random()-0.5)*100));
-        }
+        for (var i = 0; i < fireParticles; i++) { fireGeo.vertices.push(fireSourcePosition.clone()); }
         var fireMat = new THREE.PointsMaterial({ map: tex, color: 0xff4400, size: 25, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
         fireSystem = new THREE.Points(fireGeo, fireMat);
         scene.add(fireSystem);
 
         var smokeGeo = new THREE.Geometry();
-        for (var i = 0; i < smokeParticles; i++) {
-            smokeGeo.vertices.push(new THREE.Vector3((Math.random()-0.5)*3500, Math.random()*200, (Math.random()-0.5)*3500));
-        }
-        
-        var smokeMat = new THREE.PointsMaterial({ 
-            map: tex, 
-            color: (experimentMode === 'xray') ? 0x444444 : 0x222222, 
-            size: (experimentMode === 'xray') ? 40 : 80, 
-            transparent: true, 
-            opacity: 0.2, 
-            depthWrite: false 
-        });
+        for (var i = 0; i < smokeParticles; i++) { smokeGeo.vertices.push(new THREE.Vector3((Math.random()-0.5)*3500, Math.random()*200, (Math.random()-0.5)*3500)); }
+        var smokeMat = new THREE.PointsMaterial({ map: tex, color: (experimentMode === 'xray') ? 0x444444 : 0x222222, size: (experimentMode === 'xray') ? 40 : 80, transparent: true, opacity: 0.2, depthWrite: false });
         smokeSystem = new THREE.Points(smokeGeo, smokeMat);
         scene.add(smokeSystem);
-        experimentStartTime = Date.now();
     }
 
     function updateEffects() {
-        if (!fireSystem || isWarmUp) return;
+        if (!fireSystem || isWarmUp || !running) return;
+
+        fireRadius += fireSpreadRate;
+
         fireSystem.geometry.vertices.forEach(v => {
             v.y += 1.5 + Math.random();
-            if (v.y > 90) { v.y = 0; v.x = exitPosition.x+(Math.random()-0.5)*120; v.z = exitPosition.z+(Math.random()-0.5)*120; }
+            var dx = v.x - fireSourcePosition.x, dz = v.z - fireSourcePosition.z;
+            var currentDist = Math.sqrt(dx*dx + dz*dz);
+            if (v.y > 90 || currentDist > fireRadius) {
+                v.y = Math.random() * 10;
+                var angle = Math.random() * Math.PI * 2;
+                var randomDist = Math.random() * fireRadius;
+                v.x = fireSourcePosition.x + Math.cos(angle) * randomDist;
+                v.z = fireSourcePosition.z + Math.sin(angle) * randomDist;
+            }
         });
         fireSystem.geometry.verticesNeedUpdate = true;
-        smokeSystem.geometry.vertices.forEach(v => {
-            v.y += 0.3; if (v.y > 180) v.y = 0;
-            v.x += Math.sin(Date.now()*0.0005)*0.2;
-        });
-        smokeSystem.geometry.verticesNeedUpdate = true;
 
+        smokeSystem.geometry.vertices.forEach(v => { v.y += 0.3; if (v.y > 180) v.y = 0; v.x += Math.sin(Date.now()*0.0005)*0.2; });
+        smokeSystem.geometry.verticesNeedUpdate = true;
         var maxFog = (experimentMode === 'xray') ? 0.004 : 0.015;
         var fogIncrement = (experimentMode === 'xray') ? 0.000002 : 0.000008;
         if (scene.fog.density < maxFog) scene.fog.density += fogIncrement;
+
+        // 死亡判定
+        var playerDist = camera.position.distanceTo(fireSourcePosition);
+        if (fireRadius > fireGraceRadius && playerDist < fireRadius) {
+            running = false;
+            alert("你被大火吞噬了！逃生失败。");
+            location.reload(); 
+        }
     }
 
     function moveCamera(dir) {
+        if (!running) return; // 关键：停止运行后禁止移动判定
         if (dir === "left") { camera.rotation.y += cameraHelper.rotation; return; }
         if (dir === "right") { camera.rotation.y -= cameraHelper.rotation; return; }
+        
         var dx = 0, dz = 0, rot = camera.rotation.y;
         if (dir === "up") { dx = -Math.sin(rot) * cameraHelper.translation; dz = -Math.cos(rot) * cameraHelper.translation; }
         else if (dir === "down") { dx = Math.sin(rot) * cameraHelper.translation; dz = Math.cos(rot) * cameraHelper.translation; }
+        
         var r = 15;
         var isWall = function(x, z) {
             var tx = Math.floor((x - cameraHelper.origin.x + 50) / 100);
             var ty = Math.floor((z - cameraHelper.origin.z + 50) / 100);
             if (ty < 0 || ty >= map.length || tx < 0 || tx >= map[0].length) return true;
-            if (map[ty][tx] === "A") { nextLevel(); return false; } 
+            if (map[ty][tx] === "A" && running) { nextLevel(); return false; } 
             return (map[ty][tx] != 1 && !isNaN(map[ty][tx])); 
         };
         var checkCol = (x, z) => isWall(x+r, z+r) || isWall(x-r, z+r) || isWall(x+r, z-r) || isWall(x-r, z-r);
@@ -235,33 +229,38 @@
     }
 
     function nextLevel() {
+        if (!running) return; // 防抖：如果已经触发过一次，直接跳过
         running = false;
+        
+        // 深度清理按键状态
         for (var k in _keys) _keys[k] = false;
-        if (input && input.keys) {
-            for (var ik in input.keys) input.keys[ik] = false;
-        }
+        if (input && input.keys) { for (var ik in input.keys) input.keys[ik] = false; }
 
         if (isWarmUp) {
             isWarmUp = false;
+            warmUpTimer = 0; // 重置计时器
             camera.rotation.set(0, 0, 0); 
-            alert("Warm-up over. Starting formal experiment (Map 1) with fire simulation.");
+            alert("练习结束。正式开始：大火正从身后蔓延，请迅速逃向出口（绿色光柱）！");
             loadLevel(1); 
         } else {
-            alert("Experiment Complete! Please download your logs.");
+            alert("成功逃生！请点击下载实验日志。");
         }
     }
 
     function update() {
+        if (!running) return;
         if (input.keys.up || _keys.w) moveCamera("up");
         if (input.keys.down || _keys.s) moveCamera("down");
         if (input.keys.left || _keys.a) moveCamera("left");
         if (input.keys.right || _keys.d) moveCamera("right");
         updateMiniMapOverlay();
         updateEffects();
-        if (isWarmUp) {
-            warmUpTimer++;
+        
+        if (isWarmUp) { 
+            warmUpTimer++; 
             if (warmUpTimer > 1800) nextLevel(); 
         }
+        
         var now = Date.now();
         if (now - lastLogTime > LOG_INTERVAL) {
             viewportLogs.push({ t: now, x: camera.position.x.toFixed(1), z: camera.position.z.toFixed(1), rot: camera.rotation.y.toFixed(3), fog: scene.fog.density.toFixed(6) });
@@ -274,85 +273,69 @@
         var loader = new THREE.TextureLoader();
         var pW = map[0].length * 100, pH = map.length * 100;
         
-        // 注意：屋顶高度是100，所以任何超过100的物体在屋内都看不见。
         scene.add(new THREE.Mesh(new THREE.BoxGeometry(pW, 5, pH), new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/ground_diffuse.jpg") })).translateY(1));
         scene.add(new THREE.Mesh(new THREE.BoxGeometry(pW, 5, pH), new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/roof_diffuse.jpg") })).translateY(100));
         
-        var wallGeo = new THREE.BoxGeometry(100, 100, 100);
-        var wallMat = new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/wall_diffuse.jpg") });
-        
-        var xrayFillMat = new THREE.MeshBasicMaterial({ color: 0x0066ff, transparent: true, opacity: 0.15, depthWrite: false });
-        var edgeGeo = new THREE.EdgesGeometry(wallGeo);
-        var edgeMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.5 });
+        var wallGeo = new THREE.BoxGeometry(100, 100, 100), wallMat = new THREE.MeshPhongMaterial({ map: loader.load("assets/images/textures/wall_diffuse.jpg") });
+        var xrayFillMat = new THREE.MeshBasicMaterial({ color: 0x0066ff, transparent: true, opacity: 0.15, depthWrite: false }), edgeGeo = new THREE.EdgesGeometry(wallGeo), edgeMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.5 });
+
+        // 必须先在循环前设置一个默认 origin
+        cameraHelper.origin.x = -pW / 2;
+        cameraHelper.origin.z = -pH / 2;
 
         for (var y = 0; y < map.length; y++) {
             for (var x = 0; x < map[y].length; x++) {
                 var px = -pW / 2 + 100 * x, pz = -pH / 2 + 100 * y;
-                if (x == 0 && y == 0) { cameraHelper.origin.x = px; cameraHelper.origin.z = pz; }
                 if (map[y][x] > 1) {
-                    if (experimentMode === 'minimap') {
-                        var m = new THREE.Mesh(wallGeo, wallMat);
-                        m.position.set(px, 50, pz); scene.add(m);
-                    } else {
-                        var fill = new THREE.Mesh(wallGeo, xrayFillMat);
-                        fill.position.set(px, 50, pz); scene.add(fill);
-                        var wireframe = new THREE.LineSegments(edgeGeo, edgeMat);
-                        wireframe.position.set(px, 50, pz); scene.add(wireframe);
-                    }
+                    var m = (experimentMode === 'minimap') ? new THREE.Mesh(wallGeo, wallMat) : new THREE.Mesh(wallGeo, xrayFillMat);
+                    m.position.set(px, 50, pz); scene.add(m);
+                    if (experimentMode === 'xray') { var wire = new THREE.LineSegments(edgeGeo, edgeMat); wire.position.set(px, 50, pz); scene.add(wire); }
                 }
-                if (map[y][x] === "D") camera.position.set(px, 50, pz);
+                if (map[y][x] === "D") { 
+                    camera.position.set(px, 50, pz); 
+                    fireSourcePosition.set(px, 50, pz); // 玩家起点即为起火点
+                }
                 if (map[y][x] === "A") {
-                    exitPosition.set(px, 50, pz); hasExit = true;
+                    exitPosition.set(px, 50, pz);
                     var g = new THREE.Mesh(new THREE.BoxGeometry(20, 100, 20), new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.6 }));
                     g.position.set(px, 50, pz); scene.add(g);
-
-                    // === 修复：确保 X-ray 模式下的 EXIT 提示可见 ===
-                    if (experimentMode === 'xray') {
-                        var exitLabel = createTextSprite("EXIT");
-                        // 修正：原来 y=110 被屋顶挡住了。改为 y=70 (在走廊高度内)。
-                        exitLabel.position.set(px, 70, pz);
-                        // 关键修改：关闭深度测试 (depthTest: false)
-                        // 这让文字即使在无数层半透明墙壁后面，也永远“置顶”显示，非常清晰。
-                        exitLabel.material.depthTest = false;
-                        exitLabel.material.depthWrite = false;
-                        scene.add(exitLabel);
-                    }
+                    if (experimentMode === 'xray') { var lbl = createTextSprite("EXIT"); lbl.position.set(px, 70, pz); lbl.material.depthTest = false; scene.add(lbl); }
                 }
             }
         }
         scene.add(new THREE.HemisphereLight(0x888888, 0x111111, 1.2));
         drawMiniMapStatic();
-        initFireEffects();
+        fireRadius = 0; // 重置火灾半径
+        initFireEffects(); 
     }
 
     function mainLoop() { if (running) { update(); renderer.render(scene, camera); requestAnimationFrame(mainLoop); } }
-
+    
     function loadLevel(l) {
-        var ajax = new XMLHttpRequest();
-        ajax.open("GET", "assets/maps/maze3d-" + l + ".json", true);
-        ajax.onreadystatechange = function() {
-            if (ajax.readyState == 4) { map = JSON.parse(ajax.responseText); initializeScene(); running = true; mainLoop(); }
+        var ajax = new XMLHttpRequest(); ajax.open("GET", "assets/maps/maze3d-" + l + ".json", true);
+        ajax.onreadystatechange = function() { 
+            if (ajax.readyState == 4) { 
+                map = JSON.parse(ajax.responseText); 
+                initializeScene(); 
+                running = true; // 只有全部初始化完才允许运行
+                mainLoop(); 
+            } 
         };
         ajax.send(null);
     }
 
     function setupPointerLock() {
-        var el = renderer.domElement;
-        el.onclick = () => { if(!running) return; el.requestPointerLock(); };
-        
+        var el = renderer.domElement; 
+        el.onclick = () => { if(running) el.requestPointerLock(); };
         document.addEventListener('pointerlockchange', () => { 
             _plActive = (document.pointerLockElement === el); 
-            if (_plActive) _skipFirstMouseMove = true;
+            if (_plActive) _skipFirstMouseMove = true; 
         });
-
         document.addEventListener('mousemove', (e) => { 
-            if (_plActive && running) {
-                if (_skipFirstMouseMove) {
-                    _skipFirstMouseMove = false;
-                    return;
-                }
+            if (_plActive && running) { 
+                if (_skipFirstMouseMove) { _skipFirstMouseMove = false; return; } 
                 camera.rotation.y -= e.movementX * _mouseSensitivity; 
-            }
+            } 
         });
     }
 
@@ -362,19 +345,9 @@
         var ctx = mm.getContext("2d");
         for (var y=0; y<map.length; y++) {
             for (var x=0; x<map[0].length; x++) {
-                if (map[y][x] === 'A') {
-                    ctx.fillStyle = "#2ecc71"; 
-                } else {
-                    ctx.fillStyle = isWallCellByValue(map[y][x]) ? "#333" : "#eee";
-                }
+                ctx.fillStyle = (map[y][x] === 'A') ? "#2ecc71" : (isWallCellByValue(map[y][x]) ? "#333" : "#eee");
                 ctx.fillRect(x*mapScale, y*mapScale, mapScale, mapScale);
-                if (map[y][x] === 'A') {
-                    ctx.fillStyle = "white";
-                    ctx.font = `bold ${Math.floor(mapScale * 0.8)}px Arial`;
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    ctx.fillText("E", x * mapScale + mapScale / 2, y * mapScale + mapScale / 2);
-                }
+                if (map[y][x] === 'A') { ctx.fillStyle = "white"; ctx.font = `bold ${Math.floor(mapScale*0.8)}px Arial`; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText("E", x*mapScale+mapScale/2, y*mapScale+mapScale/2); }
             }
         }
     }
@@ -382,13 +355,11 @@
     function updateMiniMapOverlay() {
         var o = $("objects"); if (!o || experimentMode === 'xray') return;
         var ctx = o.getContext("2d"); ctx.clearRect(0, 0, o.width, o.height);
-        var p = worldToTileFloat(camera.position.x, camera.position.z);
-        var tx = p.tx * mapScale, ty = p.ty * mapScale;
-        ctx.fillStyle = "#00f0ff"; ctx.beginPath(); ctx.arc(tx, ty, 4, 0, Math.PI * 2); ctx.fill();
-        var rot = camera.rotation.y, lineLength = 20; 
-        ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(tx, ty);
-        ctx.lineTo(tx - Math.sin(rot) * lineLength, ty - Math.cos(rot) * lineLength);
-        ctx.stroke();
+        var fs = worldToTileFloat(fireSourcePosition.x, fireSourcePosition.z);
+        ctx.strokeStyle = "rgba(255, 0, 0, 0.4)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(fs.tx * mapScale, fs.ty * mapScale, (fireRadius / 100) * mapScale, 0, Math.PI*2); ctx.stroke();
+        var p = worldToTileFloat(camera.position.x, camera.position.z), tx = p.tx * mapScale, ty = p.ty * mapScale;
+        ctx.fillStyle = "#00f0ff"; ctx.beginPath(); ctx.arc(tx, ty, 4, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx - Math.sin(camera.rotation.y)*20, ty - Math.cos(camera.rotation.y)*20); ctx.stroke();
     }
 
     function worldToTileFloat(wx, wz) {
@@ -397,23 +368,20 @@
     }
 
     window.downloadMazeData = function() {
-        var data = { mode: experimentMode, viewport: viewportLogs, eye: gazeLogs };
-        var a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type : 'application/json'}));
+        var a = document.createElement('a'); 
+        a.href = URL.createObjectURL(new Blob([JSON.stringify({ mode: experimentMode, viewport: viewportLogs, eye: gazeLogs }, null, 2)], {type : 'application/json'}));
         a.download = `maze_study_${Date.now()}.json`; a.click();
     };
 
-    function configureUIForMode(m) {
-        $("hud-right").style.display = (m === 'minimap') ? 'flex' : 'none';
-        if($("btn-toggle-map")) $("btn-toggle-map").style.display = (m === 'minimap') ? 'flex' : 'none';
+    function configureUIForMode(m) { 
+        $("hud-right").style.display = (m === 'minimap') ? 'flex' : 'none'; 
+        if($("btn-toggle-map")) $("btn-toggle-map").style.display = (m === 'minimap') ? 'flex' : 'none'; 
     }
 
     function setupMinimapTracking() {
         var o = $("objects"); if (!o) return;
         o.addEventListener('mousemove', (e) => {
-            var r = o.getBoundingClientRect();
-            var gx = Math.floor(((e.clientX - r.left) * (o.width / r.width)) / mapScale);
-            var gy = Math.floor(((e.clientY - r.top) * (o.height / r.height)) / mapScale);
+            var r = o.getBoundingClientRect(), gx = Math.floor(((e.clientX - r.left) * (o.width / r.width)) / mapScale), gy = Math.floor(((e.clientY - r.top) * (o.height / r.height)) / mapScale);
             if (gx >= 0 && gy >= 0 && gy < map.length && gx < map[0].length) minimapLogs.hovers[`${gx},${gy}`] = (minimapLogs.hovers[`${gx},${gy}`] || 0) + 1;
         });
     }
